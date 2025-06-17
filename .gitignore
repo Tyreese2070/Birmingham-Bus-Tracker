@@ -1,0 +1,5 @@
+# Ignore the unzipped GTFS data directory
+tfwm_gtfs/
+
+# Ignore the downloaded zip file
+tfwm_gtfs.zip
