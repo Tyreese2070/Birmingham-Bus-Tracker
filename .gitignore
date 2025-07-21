@@ -3,3 +3,6 @@ tfwm_gtfs/
 
 # Ignore the downloaded zip file
 tfwm_gtfs.zip
+
+# ignore api key env file
+keys.env
