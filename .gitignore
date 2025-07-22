@@ -8,5 +8,8 @@ tfwm_gtfs.zip
 keys.env
 
 # ignore Python cache files
-__pycache__/
+__pycache__
 .pyc*
+
+# ignore venv
+venv/
