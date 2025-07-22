@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-#import get_data
+from get_data import (all_routes, all_stops_for_route, live_vehichles_positions, setup_data)
 
 app = FastAPI()
 

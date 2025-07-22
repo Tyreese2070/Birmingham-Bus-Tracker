@@ -15,30 +15,6 @@ APP_KEY = os.getenv("APP_KEY")
 GTFS_DIR = 'tfwm_gtfs'
 ZIP_FILENAME = 'tfwm_gtfs.zip'
 
-# Check if the GTFS directory exists, download if it doesn't.
-if not os.path.isdir(GTFS_DIR):
-    print(f"Directory '{GTFS_DIR}' not found. Running download script...")
-    try:
-        subprocess.run(['python', 'tfwm_gtfs_download.py'], check=True)
-        print("Download script finished successfully.")
-        
-        print(f"Unzipping '{ZIP_FILENAME}'...")
-        with zipfile.ZipFile(ZIP_FILENAME, 'r') as zip_ref:
-            zip_ref.extractall(GTFS_DIR)
-        print("Unzip complete.")
-        
-        print(f"Removing '{ZIP_FILENAME}'...")
-        os.remove(ZIP_FILENAME)
-        
-    except FileNotFoundError:
-        print("Error: 'tfwm_gtfs_download.py' not found. Please ensure it is in the same directory.")
-        exit()
-    except subprocess.CalledProcessError:
-        print("Error: The download script failed.")
-        exit()
-else:
-    print(f"Directory '{GTFS_DIR}' found. Skipping download.")
-
 ROUTES_FILE = "tfwm_gtfs/routes.txt"
 STOPS_FILE = "tfwm_gtfs/stops.txt"
 STOP_TIMES_FILE = "tfwm_gtfs/stop_times.txt"
@@ -46,33 +22,61 @@ TRIPS_FILE = "tfwm_gtfs/trips.txt"
 
 positions_url = f"http://api.tfwm.org.uk/gtfs/vehicle_positions?app_id={APP_ID}&app_key={APP_KEY}"
 
-response = requests.get(positions_url)
-response.raise_for_status()
-
-feed = gtfs_realtime_pb2.FeedMessage()
-feed.ParseFromString(response.content)
-
-# Load stops.txt
+feed = None
 stops = {}
-with open(STOPS_FILE, newline="", encoding="utf-8") as f:
-    reader = csv.DictReader(f)
-    for row in reader:
-        stops[row["stop_id"]] = {
-            "name": row["stop_name"],
-            "lat": float(row["stop_lat"]),
-            "lon": float(row["stop_lon"])
-        }
-
-# Load stop_times.txt
 trip_stop_sequences = {}
-with open(STOP_TIMES_FILE, newline="", encoding="utf-8") as f:
-    reader = csv.DictReader(f)
-    for row in reader:
-        trip_id = row["trip_id"]
-        stop_id = row["stop_id"]
-        if trip_id not in trip_stop_sequences:
-            trip_stop_sequences[trip_id] = []
-        trip_stop_sequences[trip_id].append(stop_id)
+
+def setup_data():
+    global feed, stops, trip_stop_sequences
+    
+    # Check if the GTFS directory exists, download if it doesn't.
+    if not os.path.isdir(GTFS_DIR):
+        print(f"Directory '{GTFS_DIR}' not found. Running download script...")
+        try:
+            subprocess.run(['python', 'tfwm_gtfs_download.py'], check=True)
+            print("Download script finished successfully.")
+            
+            print(f"Unzipping '{ZIP_FILENAME}'...")
+            with zipfile.ZipFile(ZIP_FILENAME, 'r') as zip_ref:
+                zip_ref.extractall(GTFS_DIR)
+            print("Unzip complete.")
+            
+            print(f"Removing '{ZIP_FILENAME}'...")
+            os.remove(ZIP_FILENAME)
+            
+        except FileNotFoundError:
+            print("Error: 'tfwm_gtfs_download.py' not found. Please ensure it is in the same directory.")
+            exit()
+        except subprocess.CalledProcessError:
+            print("Error: The download script failed.")
+            exit()
+    else:
+        print(f"Directory '{GTFS_DIR}' found. Skipping download.")
+
+    response = requests.get(positions_url)
+    response.raise_for_status()
+    feed = gtfs_realtime_pb2.FeedMessage()
+    feed.ParseFromString(response.content)
+
+    # Load stops.txt
+    with open(STOPS_FILE, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            stops[row["stop_id"]] = {
+                "name": row["stop_name"],
+                "lat": float(row["stop_lat"]),
+                "lon": float(row["stop_lon"])
+            }
+
+    # Load stop_times.txt
+    with open(STOP_TIMES_FILE, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            trip_id = row["trip_id"]
+            stop_id = row["stop_id"]
+            if trip_id not in trip_stop_sequences:
+                trip_stop_sequences[trip_id] = []
+            trip_stop_sequences[trip_id].append(stop_id)
 
 def find_closest_stop(trip_id, vehicle_lat, vehicle_lon):
     if trip_id not in trip_stop_sequences:
@@ -150,23 +154,48 @@ def all_stops_for_route(route_name):
 
     return stops_for_route
 
-# May change to get an accurate current stop.
-def live_vehichles_positions(route_name):
+def get_route_ids_by_short_name(route_short_name):
     """
-    Returns positions of all vehicles on a given route.
+    Returns a set of all route_ids that match the given route_short_name.
     """
+    matching_route_ids = set()
+    with open(ROUTES_FILE, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row["route_short_name"] == route_short_name:
+                matching_route_ids.add(row["route_id"])
+    return matching_route_ids
+
+def live_vehicles_positions(route_name):
+    """
+    Returns positions of all vehicles on a given route_short_name (e.g., '50').
+    """
+    # Refresh feed data
+    response = requests.get(positions_url)
+    response.raise_for_status()
+    feed = gtfs_realtime_pb2.FeedMessage()
+    feed.ParseFromString(response.content)
+
+    valid_route_ids = get_route_ids_by_short_name(route_name)
+
     vehicles = []
     for entity in feed.entity:
         if entity.HasField("vehicle"):
-            route_id = entity.vehicle.trip.route_id
-            if route_id == route_name:
-                position = entity.vehicle.position
-                stop_name = find_closest_stop(entity.vehicle.trip.trip_id, position.latitude, position.longitude)
+            vehicle_data = entity.vehicle
+            if vehicle_data.trip.route_id in valid_route_ids:
+                position = vehicle_data.position
+                stop_name = find_closest_stop(vehicle_data.trip.trip_id, position.latitude, position.longitude)
                 vehicles.append({
                     "vehicle_id": entity.id,
-                    "route_id": route_id,
+                    "route_id": vehicle_data.trip.route_id,
                     "latitude": position.latitude,
                     "longitude": position.longitude,
                     "current_stop": stop_name if stop_name else "Unknown"
                 })
+
     return vehicles
+
+
+if __name__ == "__main__":
+    setup_data()
+    print(live_vehicles_positions("50"))
