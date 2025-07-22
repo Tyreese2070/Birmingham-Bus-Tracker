@@ -13,10 +13,9 @@ APP_KEY = os.getenv("APP_KEY")
 ROUTES_FILE = "tfwm_gtfs/routes.txt"
 STOPS_FILE = "tfwm_gtfs/stops.txt"
 STOP_TIMES_FILE = "tfwm_gtfs/stop_times.txt"
+TRIPS_FILE = "tfwm_gtfs/trips.txt"
 
 positions_url = f"http://api.tfwm.org.uk/gtfs/vehicle_positions?app_id={APP_ID}&app_key={APP_KEY}"
-
-print("Fetching live vehicle positions...")
 
 response = requests.get(positions_url)
 response.raise_for_status()
@@ -66,44 +65,79 @@ def find_closest_stop(trip_id, vehicle_lat, vehicle_lon):
 
     return closest_stop if min_dist <= 100 else None  # only consider stops within 100m
 
-# Route input and lookup
-route_input = input("Enter the route to check for live buses: ").strip()
+def all_routes():
+    """
+    Returns a list of all routes.
+    """
+    routes = []
+    with open(ROUTES_FILE, mode="r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            routes.append({
+                "route_name": row["route_short_name"],
+            })
+    return routes
 
-route_ids = set()
-with open(ROUTES_FILE, mode="r", newline="", encoding="utf-8") as f:
-    reader = csv.reader(f)
-    next(reader)
-    for row in reader:
-        route_id, _, route_short_name = row[0], row[1], row[2]
-        if route_short_name.strip() == route_input:
-            route_ids.add(route_id)
+def all_stops_for_route(route_name):
+    """
+    Returns a list of all stops for a given route (by route_short_name).
+    """
+    # 1. Find route_id from route_short_name
+    route_ids = set()
+    with open(ROUTES_FILE, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row["route_short_name"] == route_name:
+                route_ids.add(row["route_id"])
 
-if not route_ids:
-    print(f"No matching route_ids found for route '{route_input}' in routes.txt.")
-    exit()
-    
-print("Route IDs found:", route_ids)
+    if not route_ids:
+        return []
 
-found = False
+    # 2. Get trip_ids from trips.txt
+    trip_ids = set()
+    with open(TRIPS_FILE, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row["route_id"] in route_ids:
+                trip_ids.add(row["trip_id"])
 
-for entity in feed.entity:
-    if entity.HasField("vehicle"):
-        route_id = entity.vehicle.trip.route_id
-        trip_id = entity.vehicle.trip.trip_id
-        if route_id in route_ids:
-            position = entity.vehicle.position
-            stop_name = find_closest_stop(trip_id, position.latitude, position.longitude)
-            print(f"Bus route: {route_input}")
-            print(f"Bus ID: {entity.id}")
-            print(f"Route ID: {route_id}")
-            print(f"Latitude: {position.latitude}")
-            print(f"Longitude: {position.longitude}")
-            if stop_name:
-                print(f"Current Stop: {stop_name}")
-            else:
-                print("Current Stop: Unknown (not near any known stop)")
-            print("-" * 30)
-            found = True
+    # 3. Get stop_ids from stop_times.txt
+    stop_ids = set()
+    with open(STOP_TIMES_FILE, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row["trip_id"] in trip_ids:
+                stop_ids.add(row["stop_id"])
 
-if not found:
-    print(f"No live buses found for route {route_input}.")
+    # 4. Map stop_id to stop_name from stops.txt
+    stops_for_route = []
+    with open(STOPS_FILE, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row["stop_id"] in stop_ids:
+                stops_for_route.append({
+                    "stop_name": row["stop_name"]
+                })
+
+    return stops_for_route
+
+# May change to get an accurate current stop.
+def live_vehichles_positions(route_name):
+    """
+    Returns positions of all vehicles on a given route.
+    """
+    vehicles = []
+    for entity in feed.entity:
+        if entity.HasField("vehicle"):
+            route_id = entity.vehicle.trip.route_id
+            if route_id == route_name:
+                position = entity.vehicle.position
+                stop_name = find_closest_stop(entity.vehicle.trip.trip_id, position.latitude, position.longitude)
+                vehicles.append({
+                    "vehicle_id": entity.id,
+                    "route_id": route_id,
+                    "latitude": position.latitude,
+                    "longitude": position.longitude,
+                    "current_stop": stop_name if stop_name else "Unknown"
+                })
+    return vehicles
