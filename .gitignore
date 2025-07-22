@@ -6,3 +6,7 @@ tfwm_gtfs.zip
 
 # ignore api key env file
 keys.env
+
+# ignore Python cache files
+__pycache__/
+.pyc*

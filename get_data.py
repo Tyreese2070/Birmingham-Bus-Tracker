@@ -113,9 +113,10 @@ def all_routes():
 
 def all_stops_for_route(route_name):
     """
-    Returns a list of all stops for a given route (by route_short_name).
+    Returns a list of unique stops for a given route.
     """
-    # 1. Find route_id from route_short_name
+
+    # 1. Find route_ids from route_short_name
     route_ids = set()
     with open(ROUTES_FILE, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -126,33 +127,43 @@ def all_stops_for_route(route_name):
     if not route_ids:
         return []
 
-    # 2. Get trip_ids from trips.txt
-    trip_ids = set()
+    # 2. Get trip_id for route
+    trip_id = None
     with open(TRIPS_FILE, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             if row["route_id"] in route_ids:
-                trip_ids.add(row["trip_id"])
+                trip_id = row["trip_id"]
+                break  # Just take the first matching trip
 
-    # 3. Get stop_ids from stop_times.txt
-    stop_ids = set()
+    if not trip_id:
+        return []
+
+    # 3. Get stop_ids for the selected trip_id
+    ordered_stop_ids = []
     with open(STOP_TIMES_FILE, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            if row["trip_id"] in trip_ids:
-                stop_ids.add(row["stop_id"])
+            if row["trip_id"] == trip_id:
+                ordered_stop_ids.append(row["stop_id"])
 
-    # 4. Map stop_id to stop_name from stops.txt
-    stops_for_route = []
+    # 4. Map stop_ids to names using stops.txt
+    stop_id_to_name = {}
     with open(STOPS_FILE, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            if row["stop_id"] in stop_ids:
-                stops_for_route.append({
-                    "stop_name": row["stop_name"]
-                })
+            stop_id_to_name[row["stop_id"]] = row["stop_name"]
+
+    seen = set()
+    stops_for_route = []
+    for stop_id in ordered_stop_ids:
+        stop_name = stop_id_to_name.get(stop_id)
+        if stop_name and stop_name not in seen:
+            seen.add(stop_name)
+            stops_for_route.append({"stop_name": stop_name})
 
     return stops_for_route
+
 
 def get_route_ids_by_short_name(route_short_name):
     """
