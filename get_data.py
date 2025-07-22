@@ -4,11 +4,40 @@ import csv
 from geopy.distance import distance
 from dotenv import load_dotenv
 import os
+import subprocess
+import zipfile
 
 load_dotenv(dotenv_path="keys.env")
 
 APP_ID = os.getenv("APP_ID")
 APP_KEY = os.getenv("APP_KEY")
+
+GTFS_DIR = 'tfwm_gtfs'
+ZIP_FILENAME = 'tfwm_gtfs.zip'
+
+# Check if the GTFS directory exists, download if it doesn't.
+if not os.path.isdir(GTFS_DIR):
+    print(f"Directory '{GTFS_DIR}' not found. Running download script...")
+    try:
+        subprocess.run(['python', 'tfwm_gtfs_download.py'], check=True)
+        print("Download script finished successfully.")
+        
+        print(f"Unzipping '{ZIP_FILENAME}'...")
+        with zipfile.ZipFile(ZIP_FILENAME, 'r') as zip_ref:
+            zip_ref.extractall(GTFS_DIR)
+        print("Unzip complete.")
+        
+        print(f"Removing '{ZIP_FILENAME}'...")
+        os.remove(ZIP_FILENAME)
+        
+    except FileNotFoundError:
+        print("Error: 'tfwm_gtfs_download.py' not found. Please ensure it is in the same directory.")
+        exit()
+    except subprocess.CalledProcessError:
+        print("Error: The download script failed.")
+        exit()
+else:
+    print(f"Directory '{GTFS_DIR}' found. Skipping download.")
 
 ROUTES_FILE = "tfwm_gtfs/routes.txt"
 STOPS_FILE = "tfwm_gtfs/stops.txt"
