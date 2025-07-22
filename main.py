@@ -5,7 +5,7 @@ app = FastAPI()
 setup_data()
 
 @app.get("/route/{route_name}/vehicles")
-async def get_live_vehichles_for_route(route_name: str):
+async def get_live_vehicles_for_route(route_name: str):
     """
     Returns positions of all vehicles on a given route.
     """
